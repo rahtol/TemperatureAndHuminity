@@ -1,5 +1,7 @@
 #include "myDHT11.h"
 
+static const unsigned long t_stateTimeout[] = {0, 1, 20, 10, 11969};
+
 volatile unsigned long t[256];
 volatile int tidx = 256; // this value prevents ISR from doing anything
 
@@ -13,7 +15,8 @@ void pinchange() {
 CMyDHT11::CMyDHT11(uint8_t pin, uint8_t sensortype)
 {
     this->pin = pin;
-    this->state = 0;
+    this->state = STATE_IDLE;
+    this->cyclicMeasurementOn = false;
     this->data[0] = 0;
     this->data[1] = 0;
     this->data[2] = 0;
@@ -27,12 +30,33 @@ void CMyDHT11::begin()
 {
     pinMode(this->pin, INPUT_PULLUP);
     attachInterrupt (digitalPinToInterrupt (this->pin), pinchange, CHANGE);
+    this->startCyclicMeasurement();
 };
+
+void CMyDHT11::startCyclicMeasurement()
+{
+    this->cyclicMeasurementOn = true;
+
+    if (this->state == STATE_IDLE) {
+        this->t_curStateEntered = millis();
+        this->state = STATE_PROLOG;
+        pinMode(this->pin, INPUT_PULLUP);
+    }
+};
+
+void CMyDHT11::stopCyclicMeasurement()
+{
+    this->cyclicMeasurementOn = false;
+};
+
 
 float CMyDHT11::readTemperature(bool S, bool force)
 {
-    this->read();
-    return 28.4; // dummy
+    float temperature = 999.9; // return data invalid  as default
+    if (this->dataValid) {
+        temperature = (float) data[2] + ((float) data[3]) / 10.0;
+    }
+    return temperature;
 };
 
 float CMyDHT11::readHumidity(bool force)
@@ -40,44 +64,64 @@ float CMyDHT11::readHumidity(bool force)
     return 0.0; // dummy
 };
 
-void CMyDHT11::read()
-{
-    if (this->state != 0) return;
-
-    // Go into high impedence state to let pull-up raise data line level and
-    // start the reading process.
-    pinMode(pin, INPUT_PULLUP);
-    delay(1);
-
-    // First set data line low for a period according to sensor type
-    pinMode(pin, OUTPUT);
-    digitalWrite(pin, LOW);
-    delay(20); // data sheet says at least 18ms, 20ms just to be safe
-
-    tidx = 0;
-    this->state = 1;
-    this->tStartMeasurement = millis();
-    this->dataValid = false;
-    pinMode(pin, INPUT_PULLUP);
-};
-
 void CMyDHT11::loop()
 {
     unsigned long t_current = millis();
-    if ((this->state != 0) && (t_current - this->tStartMeasurement > 10)) {
-        int tidx2 = tidx;
-        tidx = 256; // stop ISR
+    if ((this->state != STATE_IDLE) && (t_current - this->t_curStateEntered > t_stateTimeout[this->state]))
+    {
+        this->t_curStateEntered = t_current;
 
-        // save now to work on t ...
-        // calculate deltas and pass them to decoder
-        unsigned long dtbf[256];
-        for (int i=0; i<tidx2-1; i++) dtbf[i] = t[i+1]-t[i];
-        this->dataValid = this->checkAndDecode(dtbf, tidx2-1);
+        switch (this->state) {
+        
+        case STATE_PROLOG:
+        {
+            this->state = STATE_OUTPUT_LOW;
+            // set data line low for a period of at least 18ms according to DHT11 data sheet
+            pinMode(pin, OUTPUT);
+            digitalWrite(pin, LOW);
+            break;
+        }
+        case STATE_OUTPUT_LOW:
+        {
+            this->state = STATE_READ;
+            // data pin back to input mode, DHT11 reads high and will start to send
+            // enable ISR to record timestamps
+            this->dataValid = false;
+            tidx = 0;
+            pinMode(pin, INPUT_PULLUP);
+            break;
+        }
+        case STATE_READ:
+        { 
+            this->state = STATE_EPILOG;
 
-        // ... til here
-        this->state = 0; // a new read cycle may start now
-       
-    }
+            int tidx2 = tidx;
+            tidx = 256; // stop ISR
+
+            // save now to work on t ...
+            // calculate deltas and pass them to decoder
+            unsigned long dtbf[256];
+            for (int i=0; i<tidx2-1; i++) dtbf[i] = t[i+1]-t[i];
+            this->dataValid = this->checkAndDecode(dtbf, tidx2-1);
+
+            break;
+        }
+        case STATE_EPILOG:
+        {
+            if (this->cyclicMeasurementOn) {
+                this->state = STATE_PROLOG;
+            }
+            else {
+                this->state = STATE_IDLE;
+            };
+            break;
+        }
+        default:
+            break;
+        }; // of switch (this->state) ..
+        
+//        Serial.printf("state=%d\n", this->state);
+    };
 };
 
 bool checkRange(unsigned long dt, unsigned long min, unsigned long max)
@@ -119,20 +163,22 @@ bool validBitSequence(int idx0, unsigned long *dt, int len, uint8_t *data)
 
 bool checksumValid(uint8_t *data)
 {
-    return true; // TODO
+    return data[0] + data[1] + data[2] + data[3]  == data[4];
 };
 
 bool CMyDHT11::checkAndDecode(unsigned long *dt, int len)
 {
+/*
     Serial.printf("len=%d\n", len);
     for (int i=0; i<len; i++) Serial.printf("%d ", dt[i]);
     Serial.printf("\n");
+*/
 
     int idx0 = 0;
     while (idx0 + 80 < len)
     {
         if (valid50msSequence(idx0, dt, len)) {
-            Serial.printf("valid50msSequence at idx0=%d\n", idx0);
+//            Serial.printf("valid50msSequence at idx0=%d\n", idx0);
             if (validBitSequence(idx0, dt, len, this->data)) {
                 return checksumValid(this->data);
             }

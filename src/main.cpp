@@ -17,7 +17,7 @@ CMyDHT11 dht(DHTPIN, DHTTYPE);
 void setup() 
 {
   Serial.begin(115200);
-  Serial.printf("TemperatureAndHuminity, v1.00, 08.08.2024 17:05\n");
+  Serial.printf("TemperatureAndHuminity, v1.00, 09.08.2024 17:09\n");
 
   curval = 0;
   display.init();
@@ -41,9 +41,7 @@ void loop()
     t_last = t_cur;
 
     float h = 53.9; //dht.readHumidity();
-    float t = 28.4;
-    if ((count++ % 100) == 0) t = dht.readTemperature();
-//    Serial.printf("Temperature=%2.1f, Humidity=%2.1f\n", t, h);
+    float t = dht.readTemperature();
 
     curval = (curval +1) % 10000;
     display.setDP(1);
