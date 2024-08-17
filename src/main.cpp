@@ -17,7 +17,7 @@ CMyDHT11 dht(DHTPIN, DHTTYPE);
 void setup() 
 {
   Serial.begin(115200);
-  Serial.printf("TemperatureAndHuminity, v1.00, 09.08.2024 17:09\n");
+  Serial.printf("TemperatureAndHuminity, v1.01, 12.08.2024 16:12\n");
 
   curval = 0;
   display.init();
@@ -80,5 +80,5 @@ void loop()
 
 
 
-  display.update();
+  display.loop();
 };

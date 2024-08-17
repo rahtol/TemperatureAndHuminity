@@ -23,7 +23,7 @@ void CLed4DigitDisplay::init()
     for (uint8_t i=0; i<4; i++) pinMode(this->digitPins[i], OUTPUT);
 };
 
-void CLed4DigitDisplay::update()
+void CLed4DigitDisplay::loop()
 {
   unsigned long t_cur = millis();
   if (t_cur - t_last_update > t_period) {

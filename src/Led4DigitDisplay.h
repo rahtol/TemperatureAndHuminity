@@ -5,7 +5,7 @@ class CLed4DigitDisplay {
 public:
     CLed4DigitDisplay(uint8_t *segPins,  uint8_t *digitPins);
     void init(); // call once  from setup()
-    void update();  // call from loop()
+    void loop();  // call from loop()
     void setValue(uint16_t value);
     void setLeadingzerosOnOff (bool on);
     void setDisplayOnOff(bool on);
